@@ -1,0 +1,4 @@
+Genes tested in both analyses: 10195
+Of these, significant (padj < 0.05) in the full-depth data (about 13x more reads): 3220
+Found again with this pipeline's subset: 1031 (32%)
+Correlation of log2 fold changes (genes tested in both): 0.943

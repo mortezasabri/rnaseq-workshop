@@ -1,0 +1,593 @@
+---
+title: "Introduction to RNA-seq analysis"
+subtitle: "From FASTQ files to biology, step by step"
+author: "Morteza Sabri"
+date: today
+date-format: "MMMM YYYY"
+format:
+  revealjs:
+    theme: [default, rnaseq.scss]
+    embed-resources: true
+    width: 1280
+    height: 720
+    margin: 0.05
+    slide-number: c/t
+    transition: none
+    code-overflow: wrap
+    code-line-numbers: false
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+# Everything shown on the slides comes from results/, written by ./run_all.sh.
+# Paths are relative to this file's folder (slides/).
+res <- "../results"
+cfg <- local({
+  lines <- readLines("../config/config.sh")
+  m <- regmatches(lines, regexec("^([A-Z0-9_]+)=\\$\\{\\1:-([^}]*)\\}", lines, perl = TRUE))
+  m <- m[lengths(m) == 3]
+  v <- setNames(vapply(m, `[`, "", 3), vapply(m, `[`, "", 2))
+  env <- Sys.getenv(names(v), unset = "")
+  v[nzchar(env)] <- env[nzchar(env)]
+  as.list(v)
+})
+padj_cut <- as.numeric(cfg$PADJ_CUTOFF)
+lfc_cut <- as.numeric(cfg$LFC_CUTOFF)
+have <- function(p) file.exists(file.path(res, p))
+# fig("folder/file.png"): the image, or a visible note when that step has not produced it
+fig <- function(p, attr = ".r-stretch") {
+  if (have(p)) sprintf("![](%s){%s}", file.path(res, p), attr)
+  else sprintf("*[not generated yet: results/%s]*", p)
+}
+big <- function(x) format(x, big.mark = ",", scientific = FALSE)
+
+samples <- read.delim(file.path("..", cfg$SAMPLES), comment.char = "#")
+de <- read.delim(file.path(res, "downstream/2_dea/deseq2_all_genes.tsv"))
+n_tested <- nrow(de)
+summary_txt <- readLines(file.path(res, "downstream/2_dea/summary.txt"))
+n_sig <- as.integer(sub(".*: ([0-9]+) .*", "\\1", grep("^Genes with padj", summary_txt, value = TRUE)))
+n_up <- sum(de$direction == "up"); n_down <- sum(de$direction == "down")
+
+funnel <- if (have("downstream/0_upstream/01_read_funnel.tsv"))
+  read.delim(file.path(res, "downstream/0_upstream/01_read_funnel.tsv"))
+pct <- function(x) sprintf("%.0f%%", 100 * median(x / funnel$sequenced))
+depth_file <- file.path(res, "downstream/2_dea/02_depth_check.txt")
+depth_line <- if (file.exists(depth_file)) {
+  d <- readLines(depth_file)
+  full <- as.numeric(sub(".*: ", "", d[2])); found <- as.numeric(sub(".*: ([0-9]+).*", "\\1", d[3]))
+  sprintf("the full data found %.0f× more significant genes.", full / found)
+} else "deeper data finds more genes."
+norm_info <- if (have("downstream/1_eda/02_normalization.tsv"))
+  read.delim(file.path(res, "downstream/1_eda/02_normalization.tsv"))
+own_sf <- if (have("downstream/1_eda/01_library_sizes.tsv"))
+  range(read.delim(file.path(res, "downstream/1_eda/01_library_sizes.tsv"))$size_factor)
+norm_note <- if (!is.null(norm_info) && cfg$COUNTS_SOURCE == "pipeline" &&
+                 grepl("^published", norm_info$counts[1]) && !is.null(own_sf))
+  sprintf("If asked why not our own counts: the 2 M-read subsets have equal depths (size factors
+%.2f to %.2f), so there is nothing to correct; the plot uses the published full-depth counts.",
+          own_sf[1], own_sf[2]) else ""
+depth_range <- if (!is.null(norm_info))
+  sprintf(" (here %.0f–%.0f M reads)", min(norm_info$million_reads), max(norm_info$million_reads)) else ""
+edger_caption <- if (have("downstream/2_dea/01_deseq2_vs_edger_overlap.tsv")) {
+  ov <- read.delim(file.path(res, "downstream/2_dea/01_deseq2_vs_edger_overlap.tsv"))
+  n_ov <- setNames(ov$genes, ov$called_by)
+  sprintf("Same fold changes, different strictness. Significant genes: DESeq2 %s, edgeR %s, in both %s%s.",
+          big(n_ov[["both"]] + n_ov[["DESeq2 only"]]), big(n_ov[["both"]] + n_ov[["edgeR only"]]),
+          big(n_ov[["both"]]), if (n_ov[["DESeq2 only"]] == 0) " (every DESeq2 gene)" else "")
+} else ""
+depth_x <- if (file.exists(depth_file)) sub(".*about ([0-9]+)x.*", "\\1", readLines(depth_file)[2]) else "?"
+depth_r <- if (file.exists(depth_file)) sprintf("%.2f", as.numeric(sub(".*: ", "", readLines(depth_file)[4]))) else "?"
+pathview_png <- list.files(file.path(res, "downstream/7_enriched_path"), pattern = "pathview\\.png$")[1]
+```
+
+## The question {.smaller}
+
+:::: {.columns}
+::: {.column width="55%"}
+**What does dexamethasone do to airway smooth muscle cells?**
+
+- Dexamethasone: a glucocorticoid, the standard anti-inflammatory drug in asthma
+- Airway smooth muscle (ASM) cells from **4 donors**
+- Each donor's cells: **untreated** and **treated** (1 µM, 18 h)
+- Total: 8 RNA-seq samples, paired-end Illumina reads
+
+<br>
+
+::: {.muted .small}
+Himes *et al.* (2014) *PLoS One* 9:e99625, GEO GSE52778.
+Bioconductor package: `airway`.
+:::
+:::
+
+::: {.column width="45%"}
+```{r}
+knitr::kable(data.frame(sample = samples$sample, donor = samples$batch, condition = samples$condition))
+```
+:::
+::::
+
+## The road map
+
+| | Step | Tool | Output |
+|---|---|---|---|
+| **upstream** | 0. get the reference (once) | `curl` from HISAT2 and Ensembl | genome index, gene annotation |
+| | 1. get reads | `curl` from ENA | FASTQ |
+| | 2. quality control | FastQC, MultiQC | HTML reports |
+| | 3. trim | Trimmomatic | cleaner FASTQ |
+| | 4. align to the genome | HISAT2, samtools | BAM |
+| | 5. count reads per gene | featureCounts (or Salmon) | **count matrix** |
+| **downstream** | 6. explore | DESeq2 (VST, PCA) | plots |
+| | 7. differential expression | DESeq2 (+ edgeR) | gene table |
+| | 8. interpretation | clusterProfiler, DOSE, ReactomePA | GO, pathways, diseases |
+
+::: {.small .muted}
+Every step is one script in the repository; `./run_all.sh` runs all of them and builds these slides.
+:::
+
+# Upstream: from reads to counts
+
+## A read in a FASTQ file
+
+```{r}
+first_read <- c("@SRR1039508.1 HWI-ST177:290:C0TECACXX:1:1101:1225:2130/1",
+                "CATTGCTGATACCAANNNNNNNNGCATTCCTCAAGGTCTTCCTCCTTCCCTTACGGAATTACA",
+                "+",
+                "HJJJJJJJJJJJJJJ########00?GHIJJJJJJJIJJJJJJJJJJJJJJJJJHHHFFFFFD")
+```
+
+::: {.qual}
+`r first_read[1]`  ← read name<br>
+`r first_read[2]`  ← the bases<br>
+`r first_read[3]`<br>
+`r first_read[4]`  ← one quality letter per base
+:::
+
+:::: {.columns}
+::: {.column width="60%"}
+| Part of the name | Meaning |
+|------|------------------|
+| `SRR1039508` | run in the public archive (SRA/ENA): donor N61311, untreated |
+| `.1` | pair number in the file: the first read pair |
+| `HWI-ST177` | instrument ID (an Illumina HiSeq 2000) |
+| `290` | run number on that instrument |
+| `C0TECACXX` | flow cell ID |
+| `1` | lane on the flow cell |
+| `1101` | tile: one imaged patch of the lane |
+| `1225:2130` | X and Y position of the cluster on the tile |
+| `/1` | read 1 of the pair; its mate in the R2 file ends in `/2` |
+:::
+::: {.column width="40%"}
+- Quality letter = Phred score **Q** = −10 · log~10~(error probability)
+- `J` = Q41 (1 error in ~12,000), `#` = Q2: the 8 `N`s were unreadable
+- This is read 1 of the first sample, not hand-picked: 8 bases unreadable. Rare (0.4% of reads), but QC and trimming exist for exactly this: trimming dropped this read.
+:::
+::::
+
+## Get the reads, check their quality
+
+:::: {.columns}
+::: {.column width="60%"}
+```bash
+# 1. get reads: stream the run's 2 files from ENA,
+#    keep the first 2 M reads (4 lines per read)
+curl -sL $URL_R1 | gzip -dc | head -n 8000000 | gzip > R1.fq.gz
+curl -sL $URL_R2 | gzip -dc | head -n 8000000 | gzip > R2.fq.gz
+```
+:::
+::: {.column width="40%"}
+```bash
+# 2. quality control: one report
+#    per file, MultiQC merges them
+fastqc R1.fq.gz R2.fq.gz
+multiqc .
+```
+:::
+::::
+
+`r fig("upstream/multiqc/multiqc_report_plots/png/fastqc_per_base_sequence_quality_plot.png")`
+
+::: {.small .muted}
+Mean quality along the read, every FASTQ file (raw and trimmed). Green = good. The 16 ENA URLs are in `config/samples.tsv`.
+:::
+
+## Trim, align, count
+
+:::: {.columns}
+::: {.column width="48%"}
+```bash
+# 0. once: index the human genome (GRCh38)
+#    (we download this index prebuilt: 8 files, 4 GB)
+hisat2-build genome.fa grch38/genome
+
+# 3. trim: cut low-quality ends, drop short reads
+trimmomatic PE R1.fq.gz R2.fq.gz \
+  R1_trimmed.fq.gz R1_unpaired.fq.gz \
+  R2_trimmed.fq.gz R2_unpaired.fq.gz \
+  ILLUMINACLIP:TruSeq3-PE-2.fa:2:30:10:2:True \
+  SLIDINGWINDOW:4:20 MINLEN:25
+
+# 4. align (splice-aware), sort, index
+hisat2 -x grch38/genome \
+  -1 R1_trimmed.fq.gz -2 R2_trimmed.fq.gz |
+  samtools sort -o sample.bam
+samtools index sample.bam
+
+# 5. count read pairs per gene
+featureCounts -p --countReadPairs -s 0 \
+  -a Homo_sapiens.GRCh38.gtf.gz \
+  -o counts.txt *.bam
+```
+
+::: {.small .muted}
+`grch38/genome` = the index files' shared name (`genome.1.ht2` ... `genome.8.ht2`). The GTF is
+Ensembl's gene annotation: where each gene and exon lies on the genome.
+:::
+:::
+
+::: {.column width="52%"}
+`r fig("downstream/0_upstream/01_read_funnel.png", 'width="100%"')`
+
+::: {.small}
+`r if (!is.null(funnel)) sprintf("Of %s read pairs per sample, %s survive trimming, %s align, %s land in a gene.", big(median(funnel$sequenced)), pct(funnel$after_trimming), pct(funnel$aligned), pct(funnel$assigned_to_gene))`
+:::
+:::
+::::
+
+## The reads already tell the story
+
+`r fig(sprintf("downstream/0_upstream/02_coverage_%s.png", cfg$SHOWCASE_GENE))`
+
+::: {.small .muted}
+`r cfg$SHOWCASE_GENE`, the gene highlighted in the original paper. Height = CPM. Blocks below = exons: reads pile up
+there because RNA is spliced.
+:::
+
+## The count matrix, and a second route
+
+:::: {.columns}
+::: {.column width="50%"}
+```{r}
+counts_file <- file.path(res, "upstream/featureCounts/gene_counts.tsv")
+if (file.exists(counts_file)) {
+  counts <- read.delim(counts_file, check.names = FALSE)
+  show <- c(head(de$gene_id[!is.na(de$symbol)], 4), de$gene_id[which(de$symbol == "ACTB")])
+  m <- counts[match(show, counts$gene_id), 2:5]     # first two donors; all 8 samples are in the file
+  rownames(m) <- de$symbol[match(show, de$gene_id)]
+  cond <- samples$condition[match(names(m), samples$sample)]
+  names(m) <- paste0(ifelse(cond == cfg$REFERENCE_LEVEL, "untreated", "treated"), "<br>",
+                     samples$batch[match(names(m), samples$sample)])
+  knitr::kable(m, format.args = list(big.mark = ","), escape = FALSE)
+}
+```
+::: {.small}
+One row per gene (`r big(nrow(counts))` in the annotation), one column per sample (2 of 4 donors shown):
+**raw counts**, not normalized. This table is the input for everything downstream.
+:::
+:::
+
+::: {.column width="50%"}
+`r fig("downstream/0_upstream/03_featurecounts_vs_salmon.png", 'width="100%"')`
+
+::: {.small}
+**Salmon** skips alignment: it maps reads to transcript sequences and estimates counts in seconds.
+:::
+:::
+::::
+
+## Choosing the upstream tools
+
+| Tool | What it does | Pick it when | Trade-off |
+|-----------|--------------|----------------|------------|
+| **STAR** | aligns reads to the genome, across splice junctions | you need new splice junctions, fusions or variants; large projects (ENCODE, TCGA) | ~32 GB RAM for a human genome |
+| **HISAT2** (used here) | the same job, with a compact index | memory is limited: a laptop, a course, a small server | ~8 GB RAM |
+| **featureCounts** (used here) or HTSeq-count | counts aligned reads per gene, from the BAM | gene-level differential expression; simple and transparent | reads that fit several genes are dropped |
+| **Salmon** or kallisto (Salmon used here as a check) | skips the genome: matches reads to known transcripts and estimates counts | you only need expression: many samples, little time, isoforms | no BAM to look at; finds no new genes, junctions or variants |
+
+::: {.callout-box}
+Need to **see the reads** or find something new (coverage, new splice junctions, variants)? Align.
+Need **counts**, even per known isoform? Salmon is enough. Many pipelines do both: nf-core/rnaseq aligns with STAR and counts with Salmon.
+:::
+
+::: {.small .muted}
+Here: HISAT2 + featureCounts fit a laptop and give the BAM behind the coverage plot; Salmon checks the counts.
+:::
+
+# Downstream: from counts to genes
+
+## Normalization: comparing samples fairly
+
+`r fig("downstream/1_eda/02_normalization.png")`
+
+::: {.small .muted}
+Depths differ`r depth_range`. **Size factor** = median of a sample's ratios to the gene averages;
+DESeq2 divides by it. Most genes don't change between samples, so how far a sample's typical gene
+sits from average tells us its sequencing depth, and we divide that out.
+:::
+
+## Do the samples group by treatment?
+
+:::: {.columns}
+::: {.column width="52%"}
+`r fig("downstream/1_eda/03_pca.png", 'width="100%"')`
+:::
+::: {.column width="48%"}
+`r fig("downstream/1_eda/04_sample_distances.png", 'width="100%"')`
+:::
+::::
+
+::: {.small}
+PC1 = treatment. PC2 = one donor that differs from the others.
+:::
+
+## The model: DESeq2
+
+:::: {.columns}
+::: {.column width="45%"}
+```r
+dds <- DESeqDataSetFromMatrix(
+  countData = counts,
+  colData   = samples,
+  design    = ~ batch + condition)
+dds <- DESeq(dds)
+res <- results(dds, contrast =
+  c("condition", "dexamethasone", "untreated"))
+```
+
+::: {.small}
+- Counts ~ negative binomial (overdispersed Poisson)
+- `~ batch + condition`: compare treated vs. untreated **within each donor**
+- `r big(n_tested)` genes tested, **`r big(n_sig)`** with FDR < `r padj_cut`
+- `r sprintf("<span class='up'>%d up</span>, <span class='down'>%d down</span> by more than %g-fold", n_up, n_down, 2^lfc_cut)`
+:::
+:::
+
+::: {.column width="55%"}
+```{r}
+top <- head(de[!is.na(de$symbol), c("symbol", "baseMean", "log2FC_shrunk", "padj")], 10)
+top$padj <- formatC(top$padj, format = "e", digits = 1)
+names(top) <- c("gene", "mean count", "log2 FC", "adj. p")
+knitr::kable(top, row.names = FALSE, format.args = list(big.mark = ","))
+```
+:::
+::::
+
+## All genes at once: MA and volcano plots
+
+:::: {.columns}
+::: {.column width="50%"}
+`r fig("downstream/3_dea_vis/01_ma_plot.png", 'width="100%"')`
+:::
+::: {.column width="50%"}
+`r fig("downstream/3_dea_vis/02_volcano.png", 'width="100%"')`
+:::
+::::
+
+::: {.small .muted}
+We shrink fold changes so that genes with few reads can't show large changes they don't have
+evidence for.
+:::
+
+## Gene by gene
+
+:::: {.columns}
+::: {.column width="40%"}
+`r fig("downstream/3_dea_vis/03_heatmap_top30.png", 'width="100%"')`
+:::
+::: {.column width="60%"}
+`r fig("downstream/3_dea_vis/04_top_genes.png", 'width="100%"')`
+:::
+::::
+
+## Is 2 million reads per sample enough?
+
+`r fig("downstream/2_dea/02_depth_check.png", ".r-stretch style=\"display: block; margin: 0 auto\"")`
+
+::: {.small .muted}
+Each bar: genes that the full published data calls significant, grouped by how much they change.
+Dark = also found with our 2 M reads. Finding small changes takes more reads, or more samples.
+:::
+
+# From genes to biology
+
+## Two ways to ask "what do these genes do?"
+
+:::: {.columns}
+::: {.column width="50%"}
+### Over-representation (ORA)
+
+1. Take the significant genes
+2. For each gene set (GO term, pathway): more of its genes in the list than expected?
+3. Hypergeometric / Fisher's test against the **universe** of tested genes
+
+```r
+enrichGO(sig_genes, universe = tested_genes,
+         OrgDb = org.Hs.eg.db, ont = "BP")
+```
+:::
+::: {.column width="50%"}
+### Gene set enrichment (GSEA)
+
+1. Rank **all** genes from most up to most down
+2. Do a set's genes cluster at the top or bottom?
+3. No cutoff needed; catches many small shifts
+
+```r
+gseGO(ranked_genes,
+      OrgDb = org.Hs.eg.db, ont = "BP")
+```
+:::
+::::
+
+::: {.callout-box}
+Same idea for every database: GO (functions), KEGG / Reactome / WikiPathways (pathways),
+Disease Ontology (diseases).
+:::
+
+## Gene Ontology: over-represented terms
+
+:::: {.columns}
+::: {.column width="45%"}
+`r fig("downstream/4_go/01_dotplot_all_ontologies.png", 'width="100%"')`
+:::
+::: {.column width="55%"}
+`r fig("downstream/4_go/04_cnetplot_bp.png", 'width="100%"')`
+:::
+::::
+
+## Too many terms? Group them
+
+:::: {.columns}
+::: {.column width="50%"}
+`r fig("downstream/5_go_ora_clust/01_compare_up_down.png", 'width="100%"')`
+:::
+::: {.column width="50%"}
+`r fig("downstream/5_go_ora_clust/03_emapplot.png", 'width="100%"')`
+:::
+::::
+
+::: {.small}
+Left: up- and down-regulated genes tested separately. Right: terms that share genes are linked and
+form themes.
+:::
+
+## GSEA: whole ranking, no cutoff
+
+:::: {.columns}
+::: {.column width="50%"}
+`r fig("downstream/6_go_gse_clust/02_gseaplot.png", 'width="100%"')`
+:::
+::: {.column width="50%"}
+`r fig("downstream/6_go_gse_clust/01_dotplot.png", 'width="100%"')`
+:::
+::::
+
+::: {.small}
+**ORA** finds processes where many genes change strongly, in either direction; **GSEA** finds
+processes where many genes shift a little in the same direction; where both agree, that's the
+strongest result.
+:::
+
+## Pathways: KEGG
+
+:::: {.columns}
+::: {.column width="72%"}
+`r if (!is.na(pathview_png)) fig(file.path("downstream/7_enriched_path", pathview_png), 'width="100%"') else fig("downstream/7_enriched_path/01_kegg_ora_dotplot.png", 'width="100%"')`
+:::
+::: {.column width="28%"}
+::: {.small}
+The most significant KEGG pathway, drawn as a map.
+
+Each gene box is colored by its fold change: <span class="up">orange = up</span>,
+<span class="down">blue = down</span> with dexamethasone.
+
+Maps and tables: folder `7_enriched_path`
+:::
+:::
+::::
+
+## Pathways: Reactome and WikiPathways
+
+:::: {.columns}
+::: {.column width="50%"}
+`r fig("downstream/12_ReactomePA/01_ora_dotplot.png", 'width="100%"')`
+:::
+::: {.column width="50%"}
+`r fig("downstream/11_wikiPath/01_ora_dotplot.png", 'width="100%"')`
+:::
+::::
+
+## Diseases and literature
+
+:::: {.columns}
+::: {.column width="50%"}
+`r fig("downstream/8_do_ora/01_dotplot.png", 'width="100%"')`
+:::
+::: {.column width="50%"}
+`r fig("downstream/10_pubmed/02_trend_genes.png", 'width="100%"')`
+:::
+::::
+
+::: {.small}
+Left: Disease Ontology terms linked to the significant genes. Right: how often the top genes
+appear together with glucocorticoids in the literature (Europe PMC).
+:::
+
+## Take-home messages
+
+- **Design decides everything**: replicates, pairing, balanced batches. No pipeline fixes a confounded design.
+- **Look before you test**: QC reports, PCA, sample distances.
+- **Raw counts in, normalization inside the model**; account for batch / donor in the design.
+- **FDR, not p-value**; shrunken fold changes for ranking and plots.
+- **Enrichment is a summary, not a proof**: right universe, many redundant terms, database bias.
+- **Depth buys power**: `r big(as.numeric(cfg$N_READS))` read pairs per sample found the strong effects; `r depth_line`
+
+## Run it yourself
+
+```bash
+git clone https://github.com/mortezasabri/rnaseq-workshop.git && cd rnaseq-workshop
+micromamba env create -f environment.yml && micromamba activate rnaseq-workshop
+./run_all.sh --dry-run     # checks tools, packages, sample sheet
+./run_all.sh               # FASTQ -> results -> these slides (~15 min + one-time 6 GB download)
+
+COUNTS_SOURCE=airway ./run_all.sh downstream   # laptop-only: skip upstream, use published counts
+```
+
+::: {.small}
+- One script per step: `upstream/01_download.sh` … `downstream/12_ReactomePA.R`
+- Own data: copy `config/samples.template.tsv`, fill it in, `SAMPLES=config/my_samples.tsv ./run_all.sh`
+- Further reading: the DESeq2 RNA-seq workflow (`rnaseqGene`), the clusterProfiler book
+:::
+
+# Backup slides {visibility="uncounted"}
+
+## p-value histogram {visibility="uncounted"}
+
+`r fig("downstream/3_dea_vis/05_pvalue_histogram.png")`
+
+## Fold changes: plain vs. shrunken {visibility="uncounted"}
+
+`r fig("downstream/3_dea_vis/06_ma_plain_vs_shrunken.png")`
+
+::: {.small .muted}
+Left: plain fold changes; genes with few reads (left side) spread wide by chance. Right: after
+shrinkage they are pulled toward 0 unless the data support them. p-values are the same in both.
+:::
+
+## DESeq2 vs. edgeR {visibility="uncounted"}
+
+`r fig("downstream/2_dea/01_deseq2_vs_edger.png", ".r-stretch style=\"display: block; margin: 0 auto\"")`
+
+::: {.small .muted}
+`r edger_caption`
+:::
+
+## GO terms: redundancy removed {visibility="uncounted"}
+
+`r fig("downstream/5_go_ora_clust/02_dotplot_simplified.png")`
+
+## GO terms clustered into themes {visibility="uncounted"}
+
+`r fig("downstream/5_go_ora_clust/04_treeplot.png")`
+
+## GSEA: core-gene distributions {visibility="uncounted"}
+
+`r fig("downstream/6_go_gse_clust/03_ridgeplot.png")`
+
+## KEGG: GSEA {visibility="uncounted"}
+
+`r fig("downstream/7_enriched_path/02_kegg_gsea_dotplot.png")`
+
+## Disease Ontology: GSEA {visibility="uncounted"}
+
+`r fig("downstream/9_do_gse/01_dotplot.png")`
+
+## Reactome: one pathway as a network {visibility="uncounted"}
+
+`r fig("downstream/12_ReactomePA/05_pathway_network.png")`
+
+## Publications on the top disease terms {visibility="uncounted"}
+
+`r fig("downstream/10_pubmed/01_trend_diseases.png")`

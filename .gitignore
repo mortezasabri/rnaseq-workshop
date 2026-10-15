@@ -1,0 +1,24 @@
+# Reads, reference genome, alignments: large, re-created by ./run_all.sh
+data/
+
+# Run logs and R objects handed between steps (re-created on every run)
+logs/
+results/downstream/objects/
+
+# Upstream: keep only the summary outputs; per-file reports and per-transcript tables are large
+results/upstream/*
+!results/upstream/featureCounts/
+results/upstream/featureCounts/*
+!results/upstream/featureCounts/gene_counts.tsv
+!results/upstream/featureCounts/counts.txt.summary
+!results/upstream/salmon/
+results/upstream/salmon/*
+!results/upstream/salmon/gene_counts_salmon.tsv
+
+# Quarto / R leftovers
+slides/*.html
+slides/*_files/
+.quarto/
+.Rhistory
+.RData
+.Rproj.user/

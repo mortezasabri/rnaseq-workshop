@@ -1,0 +1,20 @@
+# Sample sheet template. Copy it before filling it in, then point the pipeline at your copy:
+#   cp config/samples.template.tsv config/my_samples.tsv
+#   SAMPLES=config/my_samples.tsv ./run_all.sh --dry-run     (checks the sheet, runs nothing)
+#
+# One row per sample, columns separated by TABs. Lines starting with # are ignored.
+#   sample     short unique name, letters/digits/underscore/dash only (used in file names)
+#   condition  the group the sample belongs to; exactly two different values. The value set as
+#              REFERENCE_LEVEL in config/config.sh (default: untreated) is the baseline
+#   batch      pairing or batch factor, e.g. donor, cell line, sequencing run. It is added to the
+#              model (~ batch + condition). Write - in every row if there is none
+#   fastq_1    read 1: a local path (.fastq or .fastq.gz) or an http(s)/ftp URL
+#   fastq_2    read 2 for paired-end data; write - for single-end data
+#
+# The placeholder rows below are paired-end. Use one layout (paired or single) for all samples.
+# The reference genome is human (GRCh38); other species need other URLs in config/config.sh.
+sample	condition	batch	fastq_1	fastq_2
+ctrl_1	untreated	donorA	data/my_fastq/ctrl_1_R1.fastq.gz	data/my_fastq/ctrl_1_R2.fastq.gz
+treat_1	treated	donorA	data/my_fastq/treat_1_R1.fastq.gz	data/my_fastq/treat_1_R2.fastq.gz
+ctrl_2	untreated	donorB	data/my_fastq/ctrl_2_R1.fastq.gz	data/my_fastq/ctrl_2_R2.fastq.gz
+treat_2	treated	donorB	data/my_fastq/treat_2_R1.fastq.gz	data/my_fastq/treat_2_R2.fastq.gz

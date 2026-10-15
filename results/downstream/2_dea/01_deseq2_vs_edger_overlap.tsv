@@ -1,0 +1,5 @@
+called_by	genes
+both	1045
+DESeq2 only	0
+edgeR only	944
+neither	8396

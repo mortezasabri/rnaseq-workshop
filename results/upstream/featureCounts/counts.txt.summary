@@ -1,0 +1,15 @@
+Status	data/bam/SRR1039508.bam	data/bam/SRR1039509.bam	data/bam/SRR1039512.bam	data/bam/SRR1039513.bam	data/bam/SRR1039516.bam	data/bam/SRR1039517.bam	data/bam/SRR1039520.bam	data/bam/SRR1039521.bam
+Assigned	1617568	1591581	1620304	1601193	1590062	1610074	1598628	1604593
+Unassigned_Unmapped	5026	5162	4468	4035	4205	3843	4092	4700
+Unassigned_Read_Type	0	0	0	0	0	0	0	0
+Unassigned_Singleton	0	0	0	0	0	0	0	0
+Unassigned_MappingQuality	0	0	0	0	0	0	0	0
+Unassigned_Chimera	0	0	0	0	0	0	0	0
+Unassigned_FragmentLength	0	0	0	0	0	0	0	0
+Unassigned_Duplicate	0	0	0	0	0	0	0	0
+Unassigned_MultiMapping	216678	187576	182922	173903	192603	170482	182022	183842
+Unassigned_Secondary	0	0	0	0	0	0	0	0
+Unassigned_NonSplit	0	0	0	0	0	0	0	0
+Unassigned_NoFeatures	63339	61351	65887	55209	68697	65325	66903	56155
+Unassigned_Overlapping_Length	0	0	0	0	0	0	0	0
+Unassigned_Ambiguity	169388	162961	161891	160486	161614	159822	158511	152702

@@ -1,0 +1,18 @@
+Comparison: dexamethasone vs. untreated (design: ~batch + condition)
+Genes tested: 10385
+Genes with padj < 0.05: 1045 (up 627, down 418)
+... and |shrunken log2FC| >= 1: up 235, down 154
+Genes without padj (too few reads or outlier sample): 0
+
+Top 10 genes by adjusted p-value:
+   symbol baseMean log2FC_shrunk     padj
+     GPX3    994.5         3.701 6.52e-99
+   SAMHD1   1028.0         3.680 4.57e-97
+  ADAMTS1   2408.6         2.266 5.89e-66
+   CXCL12   2289.0        -1.941 2.05e-54
+    FKBP5    206.0         3.799 2.92e-54
+    DUSP1    266.1         2.892 1.54e-53
+     MAOA    192.2         3.159 4.29e-46
+     NEXN    442.0         1.961 4.38e-43
+ CRISPLD2    240.3         2.648 1.41e-40
+    SORT1    437.3         2.027 1.37e-39

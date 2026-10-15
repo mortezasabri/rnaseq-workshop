@@ -1,0 +1,51 @@
+# Everything the workshop needs: command-line tools for the upstream part
+# (FASTQ -> counts) and R/Bioconductor for the downstream part (counts -> biology).
+#   micromamba env create -f environment.yml     (or: conda env create -f environment.yml)
+#   micromamba activate rnaseq-workshop
+#   ./run_all.sh
+name: rnaseq-workshop
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+dependencies:
+  # --- upstream: FASTQ -> count matrix
+  - curl
+  - pigz
+  - fastqc
+  - multiqc
+  - trimmomatic
+  - hisat2
+  - samtools
+  - subread            # featureCounts
+  - salmon
+  # --- downstream: R / Bioconductor
+  - r-base>=4.4
+  - r-ggplot2
+  - r-ggrepel
+  - r-ggbeeswarm
+  - r-patchwork
+  - r-pheatmap
+  - r-rcolorbrewer
+  - r-dplyr
+  - r-tidyr
+  - r-readr
+  - r-ggupset
+  - r-ggnewscale
+  - r-ggridges
+  - r-europepmc
+  - bioconductor-deseq2
+  - bioconductor-edger
+  - bioconductor-apeglm
+  - bioconductor-airway
+  - bioconductor-tximport
+  - bioconductor-org.hs.eg.db
+  - bioconductor-clusterprofiler
+  - bioconductor-enrichplot
+  - bioconductor-dose
+  - bioconductor-reactomepa
+  - bioconductor-pathview
+  # --- slides
+  - quarto
+  - r-rmarkdown
+  - r-knitr
