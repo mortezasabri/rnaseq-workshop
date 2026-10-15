@@ -14,8 +14,9 @@ dexamethasone (Himes *et al.* 2014, GEO GSE52778; the Bioconductor `airway` data
 streams the first 2 million read pairs of each of the 8 samples from the European Nucleotide Archive,
 so a full run takes about 15 minutes instead of hours.
 
-**The slides:** [`docs/rnaseq_intro.html`](docs/rnaseq_intro.html). Download it and open it in a web
-browser (one file, works offline). Press **F** for full screen.
+**The slides:** online at <https://mortezasabri.github.io/rnaseq-workshop/>, or download
+[`docs/rnaseq_intro.html`](docs/rnaseq_intro.html) and open it in a web browser (one file, works
+offline). Press **F** for full screen.
 
 | Folder | What is in it |
 |---|---|
