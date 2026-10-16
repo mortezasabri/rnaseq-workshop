@@ -186,6 +186,16 @@ More figures are in the backup slides at the end.
   *Bioinformatics* 2014;30:923–930. Patro R *et al.* (Salmon) *Nat Methods* 2017;14:417–419.
   Dobin A *et al.* (STAR) *Bioinformatics* 2013;29:15–21. Bray NL *et al.* (kallisto) *Nat Biotechnol*
   2016;34:525–527.
+- Kanehisa M, Goto S. KEGG: Kyoto Encyclopedia of Genes and Genomes. *Nucleic Acids Res* 2000;28:27–30.
+  Kanehisa M *et al.* KEGG: biological systems database as a model of the real world. *Nucleic Acids Res*
+  2025;53:D672–D677.
+- Milacic M *et al.* The Reactome Pathway Knowledgebase 2024. *Nucleic Acids Res* 2024;52:D672–D678.
+  Yu G, He QY. ReactomePA: an R/Bioconductor package for reactome pathway analysis and visualization.
+  *Mol Biosyst* 2016;12:477–479.
+- Agrawal A *et al.* WikiPathways 2024: next generation pathway database. *Nucleic Acids Res*
+  2024;52:D679–D689.
+- Yu G, Wang LG, Yan GR, He QY. DOSE: an R/Bioconductor package for disease ontology semantic and
+  enrichment analysis. *Bioinformatics* 2015;31:608–609.
 
 ## License
 
